@@ -22,3 +22,4 @@
 /dirty_log_test
 /kvm_create_max_vcpus
 /steal_time
+/mem_slot_test
