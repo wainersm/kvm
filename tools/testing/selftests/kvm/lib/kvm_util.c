@@ -1703,3 +1703,8 @@ unsigned int vm_get_max_gfn(struct kvm_vm *vm)
 {
 	return vm->max_gfn;
 }
+
+unsigned int vm_get_fd(struct kvm_vm *vm)
+{
+	return vm->fd;
+}
