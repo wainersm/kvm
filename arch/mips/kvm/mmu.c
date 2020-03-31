@@ -25,6 +25,12 @@
 #define KVM_MMU_CACHE_MIN_PAGES 2
 #endif
 
+#if defined(__PAGETABLE_PUD_FOLDED)
+#define kvm_pud_index(gva) 0
+#else
+#define kvm_pud_index(gva) pud_index(gva)
+#endif
+
 static int mmu_topup_memory_cache(struct kvm_mmu_memory_cache *cache,
 				  int min, int max)
 {
@@ -234,8 +240,8 @@ static bool kvm_mips_flush_gpa_pud(pud_t *pud, unsigned long start_gpa,
 {
 	pmd_t *pmd;
 	unsigned long end = ~0ul;
-	int i_min = pud_index(start_gpa);
-	int i_max = pud_index(end_gpa);
+	int i_min = kvm_pud_index(start_gpa);
+	int i_max = kvm_pud_index(end_gpa);
 	bool safe_to_remove = (i_min == 0 && i_max == PTRS_PER_PUD - 1);
 	int i;
 
@@ -361,8 +367,8 @@ static int kvm_mips_##name##_pud(pud_t *pud, unsigned long start,	\
 	int ret = 0;							\
 	pmd_t *pmd;							\
 	unsigned long cur_end = ~0ul;					\
-	int i_min = pud_index(start);				\
-	int i_max = pud_index(end);					\
+	int i_min = kvm_pud_index(start);				\
+	int i_max = kvm_pud_index(end);					\
 	int i;								\
 									\
 	for (i = i_min; i <= i_max; ++i, start = 0) {			\
@@ -896,8 +902,8 @@ static bool kvm_mips_flush_gva_pud(pud_t *pud, unsigned long start_gva,
 {
 	pmd_t *pmd;
 	unsigned long end = ~0ul;
-	int i_min = pud_index(start_gva);
-	int i_max = pud_index(end_gva);
+	int i_min = kvm_pud_index(start_gva);
+	int i_max = kvm_pud_index(end_gva);
 	bool safe_to_remove = (i_min == 0 && i_max == PTRS_PER_PUD - 1);
 	int i;
 
