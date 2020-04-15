@@ -331,6 +331,8 @@ static void test_add_max_memory_regions(void)
 	uint64_t mem_reg_npages;
 	void *mem;
 
+	pr_info("Testing KVM_CAP_NR_MEMSLOTS memory regions can be added\n");
+
 	max_mem_slots = kvm_check_cap(KVM_CAP_NR_MEMSLOTS);
 	TEST_ASSERT(max_mem_slots > 0,
 		    "KVM_CAP_NR_MEMSLOTS should be greater than 0");
@@ -338,7 +340,8 @@ static void test_add_max_memory_regions(void)
 
 	vm = vm_create(VM_MODE_DEFAULT, 0, O_RDWR);
 
-	mem_reg_npages = vm_calc_num_guest_pages(VM_MODE_DEFAULT, MEM_REGION_SIZE);
+	mem_reg_npages = vm_calc_num_guest_pages(VM_MODE_DEFAULT,
+						 MEM_REGION_SIZE);
 
 	/* Check it can be added memory slots up to the maximum allowed */
 	pr_info("Adding slots 0..%i, each memory region with %dK size\n",
@@ -365,6 +368,75 @@ static void test_add_max_memory_regions(void)
 	kvm_vm_free(vm);
 }
 
+/*
+ * Test it cannot add memory slots with overlapped regions.
+ *
+ * The following cases are covered:
+ *
+ *             0x100000 0x300000
+ *       0x0       0x200000  0x400000
+ * slot0 |         |---2MB--|           (SUCCESS)
+ * slot1       |---2MB--|               (FAIL)
+ * slot2 |---2MB--|                     (SUCCESS)
+ * slot3           |---2MB--|           (FAIL)
+ * slot4                |---2MB--|      (FAIL)
+ * slot5                     |---2MB--| (SUCCESS)
+ */
+void test_overlap_memory_regions(void)
+{
+	int i;
+	int ret;
+	int vm_fd;
+	struct kvm_userspace_memory_region kvm_region;
+	struct kvm_vm *vm;
+	struct slot_t {
+		uint64_t guest_addr;
+		int exp_ret; /* Expected ioctl return value */
+	};
+	struct slot_t slots[] = {{0x200000,  0}, {0x100000, -1}, {0x000000,  0},
+				 {0x200000, -1}, {0x300000, -1}, {0x400000,  0}
+				};
+	uint64_t mem_reg_npages;
+	void *mem;
+
+	pr_info("Testing KVM_SET_USER_MEMORY_REGION with overlapped memory regions\n");
+
+	vm = vm_create(VM_MODE_DEFAULT, 0, O_RDWR);
+	vm_fd = vm_get_fd(vm);
+
+	pr_info("Working with memory region of %iMB\n", MEM_REGION_SIZE >> 20);
+	mem_reg_npages = vm_calc_num_guest_pages(VM_MODE_DEFAULT,
+						 MEM_REGION_SIZE);
+
+	mem = mmap(NULL, MEM_REGION_SIZE, PROT_READ | PROT_WRITE,
+		   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	TEST_ASSERT(mem != MAP_FAILED, "Failed to mmap() host");
+
+	kvm_region.flags = 0;
+	kvm_region.memory_size = MEM_REGION_SIZE;
+	kvm_region.userspace_addr = (uint64_t) mem;
+
+	for (i = 0; i < sizeof(slots)/sizeof(struct slot_t); i++) {
+		pr_info("Add slot %i, guest address 0x%06lx, expect rc=%i\n",
+			i, slots[i].guest_addr, slots[i].exp_ret);
+		if (slots[i].exp_ret == 0) {
+			vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS,
+						    slots[i].guest_addr, i,
+						    mem_reg_npages, 0);
+		} else {
+			kvm_region.slot = i;
+			kvm_region.guest_phys_addr = slots[i].guest_addr;
+			ret = ioctl(vm_fd, KVM_SET_USER_MEMORY_REGION,
+				    &kvm_region);
+			TEST_ASSERT(ret == -1 && errno == EEXIST,
+				    "Adding overlapped memory region should fail with EEXIT");
+		}
+	}
+
+	munmap(mem, MEM_REGION_SIZE);
+	kvm_vm_free(vm);
+}
+
 int main(int argc, char *argv[])
 {
 #ifdef __x86_64__
@@ -383,6 +455,7 @@ int main(int argc, char *argv[])
 #endif
 
 	test_add_max_memory_regions();
+	test_overlap_memory_regions();
 
 #ifdef __x86_64__
 	if (argc > 1)
